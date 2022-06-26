@@ -10,19 +10,19 @@
   tasks:
     - name: Provision Dev instance
       ec2:
-        id: b0rk-ans-test
+        id: ig-ans-dev-ec2
         key_name: development
-        instance_type: t2.micro
-        image: "{{ ami_id }}"
-        group: 
+        group:
           - ig-ans-development
           - ig-ans-postgres
+        instance_type: t2.micro
+        image: "{{ ami_id }}"
         instance_tags:
           Name: ig-ans-dev-ec2
         wait: yes
         vpc_subnet_id: "{{ publicsubnet1.subnet.id }}"
         assign_public_ip: yes
-        user_data: "{{ lookup('file', 'bootstrapscript.sh') }}"
+        user_data: "{{ lookup('file', 'ec2_script.sh') }}"
         exact_count: 1
         count_tag:
           Name: ig-ans-dev-ec2

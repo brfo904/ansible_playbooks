@@ -22,10 +22,12 @@
         cidr: 10.0.1.0/24
         state: present
       register: publicsubnet1
+    - name: debug public subnet
+      debug: var=publicsubnet1
     - name: create public subnet2
       amazon.aws.ec2_vpc_subnet:
         vpc_id: "{{ createdvpc.vpc.id }}"
-        az: us-east-1b        
+        az: us-east-1b
         tags:
           Name: ig-ans-public-subnet2
         cidr: 10.0.4.0/24
@@ -34,12 +36,14 @@
     - name: create private subnet1
       amazon.aws.ec2_vpc_subnet:
         vpc_id: "{{ createdvpc.vpc.id }}"
-        az: us-east-1a        
+        az: us-east-1a
         tags:
           Name: ig-ans-private-subnet1
         cidr: 10.0.2.0/24
         state: present
       register: privatesubnet1
+    - name: debug private subnet
+      debug: var=privatesubnet1
     - name: create private subnet2
       amazon.aws.ec2_vpc_subnet:
         vpc_id: "{{ createdvpc.vpc.id }}"
@@ -62,20 +66,10 @@
         tags:
           Name: ig-ans-public-routetable
         subnets:
-          - "{{ publicsubnet1.subnet.id }}"
-          - "{{ publicsubnet2.subnet.id }}"
+          - "{{publicsubnet1.subnet.id }}"
         routes:
           - dest: 0.0.0.0/0
             gateway_id: "{{ igw.gateway_id }}"
-        state: present
-    - name: create private route table
-      ec2_vpc_route_table:
-        vpc_id: "{{ createdvpc.vpc.id }}"
-        tags:
-          Name: ig-ans-private-routetable
-        subnets:
-          - "{{ privatesubnet1.subnet.id }}"
-          - "{{ privatesubnet2.subnet.id }}" 
         state: present
     - name: create postgres sg
       amazon.aws.ec2_group:
@@ -85,9 +79,7 @@
         tags:
           Name: ig-ans-postgres
         state: present
-      register: postgres_sg      
-    - name: postgres deets
-      debug: var=postgres_sg
+      register: postgres_sg
     - name: create postgres-tag sg
       amazon.aws.ec2_group:
         name: ig-ans-postgres-tag
@@ -134,7 +126,7 @@
           Name: ig-ans-development
         rules:
           - proto: tcp
-            ports: 
+            ports:
               - 22
               - 443
             cidr_ip: 0.0.0.0/0
@@ -171,7 +163,7 @@
             rule_desc: "Bedford"
         rules_egress:
           - proto: tcp
-            ports: 
+            ports:
               - 22
               - 443
             cidr_ip: 0.0.0.0/0
@@ -211,7 +203,7 @@
     - name: create ig-default sg
       amazon.aws.ec2_group:
         name: ig-ans-default
-        description: Default sg for ig 
+        description: Default sg for ig
         vpc_id: "{{ createdvpc.vpc.id }}"
         tags:
           Name: ig-ans-default
@@ -274,6 +266,18 @@
             cidr_ip: 0.0.0.0/0
         state: present
       register: ans_nginx_servers
+    - name: temp db security group
+      amazon.aws.ec2_group:
+        name: ans-temp-db-sg
+        description: temp access for ansible script to access db
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        rules:
+          - proto: tcp
+            ports:
+              - 5432
+            cidr_ip: 0.0.0.0/0
+            rule_desc: Allowing temp traffic for ansible script
+      register: temp_ans_db
     - name: create network ACL for public subnet
       community.aws.ec2_vpc_nacl:
         vpc_id: "{{ createdvpc.vpc.id }}"
@@ -309,7 +313,7 @@
         ingress:
           - [100, 'tcp', 'allow', '10.0.0.0/16', null, null, 5432, 5432]
           - [200, 'all', 'allow', '10.0.0.0/16', null, null, null, null]
-          - [300, 'tcp', 'allow', '0.0.0.0/0', null, null, 5432, 5432]
+          - [300, 'all', 'allow', '0.0.0.0/16', null, null, null, null]
         egress:
           - [100, 'tcp', 'allow', '10.0.0.0/16', null, null, 1024, 65535]
           - [200, 'all', 'allow', '0.0.0.0/0', null, null, null, null]

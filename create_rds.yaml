@@ -30,39 +30,36 @@
         max_allocated_storage: 1000
         multi_az: false
         port: 5432
-        vpc_security_group_ids:
-          - "{{ postgres_sg.group_id }}"
         subnet_group: "{{ rds_ans_sbnetgrp.subnet_group.name }}"
         backup_retention_period: 7
         preferred_backup_window: "9:30-10:00"
         auto_minor_version_upgrade: yes
         tags:
           Name: ans-rds-instance
-        wait: yes
-        username: postgres
         password: "{{ postgres_creds }}"
+        username: postgres
         state: present
       register: ans_rds
-    - name: get db details
-      debug: var=ans_rds
     - name: create image_gallery user
       postgresql_query:
-        db: "{{ ans_rds.db_name }}"
+        db: "{{ ans_rds.db_instance_identifier }}"
         login_host: "{{ ans_rds.endpoint.address }}"
-        login_user: postgres
+        login_user: "postgres"
         login_password: "{{ postgres_creds }}"
         port: 5432
         query: "create user image_gallery with password '{{ ig_creds }}';"
     - name: create user table
       postgresql_query:
         db: "{{ ans_rds.db_instance_identifier }}"
+        login_host: "{{ ans_rds.endpoint.address }}"
         login_user: image_gallery
         login_password: "{{ ig_creds }}"
         port: 5432
         query: "create table users(username varchar(200) PRIMARY KEY, password varchar(30), full_name varchar(200), isAdmin INTEGER default 0);" 
     - name: create image table
       postgresql_query:
-        db: postgres
+        db: "{{ ans_rds.db_instance_identifier }}"
+        login_host: "{{ ans_rds.endpoint.address }}"
         login_user: image_gallery
         login_password: "{{ ig_creds }}"
         port: 5432
@@ -80,4 +77,3 @@
         rules_egress:
           - proto: all
             cidr_ip: 0.0.0.0/0
-
