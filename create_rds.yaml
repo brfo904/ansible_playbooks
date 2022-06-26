@@ -1,0 +1,83 @@
+---
+- hosts: localhost
+  gather_facts: no
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    ig_creds: cpsc-4970-an$dbP4ssw0rd
+    postgres_creds: cpsc-4970-m5project
+  module_defaults:
+    group/aws:
+      region: "us-east-1"
+  tasks:
+    - name: Add RDS subnet group
+      community.aws.rds_subnet_group:
+        state: present
+        name: ans-ig-private-dbgrp
+        description: Group to allow private subnets access to RDS Instance
+        subnets:
+          - "{{ privatesubnet1.subnet.id }}"
+          - "{{ privatesubnet2.subnet.id }}"
+      register: rds_ans_sbnetgrp
+    - name: create RDS instance for new ig
+      community.aws.rds_instance:
+        engine: postgres
+        engine_version: 13.4
+        instance_id: image-gallery-ans
+        instance_type: db.t3.micro
+        db_name: image_gallery_ans
+        storage_type: gp2
+        allocated_storage: 20
+        max_allocated_storage: 1000
+        multi_az: false
+        port: 5432
+        vpc_security_group_ids:
+          - "{{ postgres_sg.group_id }}"
+        subnet_group: "{{ rds_ans_sbnetgrp.subnet_group.name }}"
+        backup_retention_period: 7
+        preferred_backup_window: "9:30-10:00"
+        auto_minor_version_upgrade: yes
+        tags:
+          Name: ans-rds-instance
+        wait: yes
+        username: postgres
+        password: "{{ postgres_creds }}"
+        state: present
+      register: ans_rds
+    - name: get db details
+      debug: var=ans_rds
+    - name: create image_gallery user
+      postgresql_query:
+        db: "{{ ans_rds.db_name }}"
+        login_host: "{{ ans_rds.endpoint.address }}"
+        login_user: postgres
+        login_password: "{{ postgres_creds }}"
+        port: 5432
+        query: "create user image_gallery with password '{{ ig_creds }}';"
+    - name: create user table
+      postgresql_query:
+        db: "{{ ans_rds.db_instance_identifier }}"
+        login_user: image_gallery
+        login_password: "{{ ig_creds }}"
+        port: 5432
+        query: "create table users(username varchar(200) PRIMARY KEY, password varchar(30), full_name varchar(200), isAdmin INTEGER default 0);" 
+    - name: create image table
+      postgresql_query:
+        db: postgres
+        login_user: image_gallery
+        login_password: "{{ ig_creds }}"
+        port: 5432
+        query: "create table images(image_id SERIAL PRIMARY KEY, owner varchar(200), file varchar(200), upload_date TIMESTAMP default now());"
+    - name: update postgres rules to remove postgres access
+      amazon.aws.ec2_group:
+        name: ig-ans-postgres
+        description: SG needed to access RDS
+        rules:
+          - proto: tcp
+            ports:
+              - 5432
+            group_name: ig-ans-postgres-tag
+            rule_desc: PostgresSQL access
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+

@@ -1,0 +1,317 @@
+--- #Create VPC, IGW, Subnets & Sec Groups
+- hosts: localhost
+  gather_facts: no
+  module_defaults:
+    group/aws:
+      region: us-east-1
+  tasks:
+    - name: Create a VPC with dedicated tenancy and a couple of tags
+      amazon.aws.ec2_vpc_net:
+        name: image-gallery-ans-vpc
+        cidr_block: 10.0.0.0/16
+        tags:
+          Name: vpc-ansible
+        state: present
+      register: createdvpc
+    - name: create public subnet1
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        az: us-east-1a
+        tags:
+          Name: ig-ans-public-subnet1
+        cidr: 10.0.1.0/24
+        state: present
+      register: publicsubnet1
+    - name: create public subnet2
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        az: us-east-1b        
+        tags:
+          Name: ig-ans-public-subnet2
+        cidr: 10.0.4.0/24
+        state: present
+      register: publicsubnet2
+    - name: create private subnet1
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        az: us-east-1a        
+        tags:
+          Name: ig-ans-private-subnet1
+        cidr: 10.0.2.0/24
+        state: present
+      register: privatesubnet1
+    - name: create private subnet2
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        az: us-east-1b
+        tags:
+          Name: ig-ans-private-subnet2
+        cidr: 10.0.3.0/24
+        state: present
+      register: privatesubnet2
+    - name: create internet gateway
+      ec2_vpc_igw:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-igw
+        state: present
+      register: igw
+    - name: create public route table
+      ec2_vpc_route_table:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-public-routetable
+        subnets:
+          - "{{ publicsubnet1.subnet.id }}"
+          - "{{ publicsubnet2.subnet.id }}"
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ igw.gateway_id }}"
+        state: present
+    - name: create private route table
+      ec2_vpc_route_table:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-private-routetable
+        subnets:
+          - "{{ privatesubnet1.subnet.id }}"
+          - "{{ privatesubnet2.subnet.id }}" 
+        state: present
+    - name: create postgres sg
+      amazon.aws.ec2_group:
+        name: ig-ans-postgres
+        description: SG needed to access RDS
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-postgres
+        state: present
+      register: postgres_sg      
+    - name: postgres deets
+      debug: var=postgres_sg
+    - name: create postgres-tag sg
+      amazon.aws.ec2_group:
+        name: ig-ans-postgres-tag
+        description: Instances with this tag can contact ig-ans-postgres
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-postgres-tag
+        state: present
+      register: postgrestag_sg
+    - name: update postgres rules
+      amazon.aws.ec2_group:
+        name: ig-ans-postgres
+        description: SG needed to access RDS
+        rules:
+          - proto: tcp
+            ports:
+              - 5432
+            group_name: ig-ans-postgres-tag
+            rule_desc: PostgresSQL access
+          - proto: tcp
+            ports:
+              - 5432
+            cidr_ip: 0.0.0.0/0
+            rule_desc: temp access to allow db access in rds file
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+    - name: update postgres-tag rules
+      amazon.aws.ec2_group:
+        name: ig-ans-postgres-tag
+        description: Instances with this tag can contact ig-ans-postgres
+        rules_egress:
+          - proto: tcp
+            ports:
+              - 5432
+            group_name: ig-ans-postgres
+            rule_desc: Allow outbound traffic to postgres
+    - name: create development sg
+      amazon.aws.ec2_group:
+        name: ig-ans-development
+        description: This sg controls access to/from server
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-development
+        rules:
+          - proto: tcp
+            ports: 
+              - 22
+              - 443
+            cidr_ip: 0.0.0.0/0
+            rule_desc: "Allow SSH/HTTPS from anywhere"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 24.239.105.213/32
+            rule_desc: "Instructor IP"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 68.119.93.72/32
+            rule_desc: "Grader IP"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 73.171.175.131/32
+            rule_desc: "Home"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 66.177.150.176/32
+            rule_desc: "Bedford"
+          - proto: tcp
+            ports:
+              - 5555
+            cidr_ip: 73.171.175.131/32
+            rule_desc: "Home"
+          - proto: tcp
+            ports:
+              - 5555
+            cidr_ip: 66.177.150.176/32
+            rule_desc: "Bedford"
+        rules_egress:
+          - proto: tcp
+            ports: 
+              - 22
+              - 443
+            cidr_ip: 0.0.0.0/0
+            rule_desc: "Allow SSH/HTTPS from anywhere"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 24.239.105.213/32
+            rule_desc: "Instructor IP"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 68.119.93.72/32
+            rule_desc: "Grader IP"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 73.171.175.131/32
+            rule_desc: "Home"
+          - proto: tcp
+            ports:
+              - 5000
+            cidr_ip: 66.177.150.176/32
+            rule_desc: "Bedford"
+          - proto: tcp
+            ports:
+              - 5555
+            cidr_ip: 73.171.175.131/32
+            rule_desc: "Home"
+          - proto: tcp
+            ports:
+              - 5555
+            cidr_ip: 66.177.150.176/32
+            rule_desc: "Bedford"
+        state: present
+      register: ans_dev_sg
+    - name: create ig-default sg
+      amazon.aws.ec2_group:
+        name: ig-ans-default
+        description: Default sg for ig 
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-default
+        rules:
+          - proto: all
+            group_name: ig-ans-postgres
+            rule_desc: Allow inbound traffic from postgres
+          - proto: tcp
+            from_port: 0
+            to_port: 65535
+            cidr_ip: 0.0.0.0/0
+          - proto: tcp
+            ports:
+              - 443
+            cidr_ip: 10.0.0.0/16
+          - proto: all
+            group_name: ig-ans-default
+            rule_desc: ig-default-new
+          - proto: all
+            group_name: ig-ans-postgres-tag
+            rule_desc: ig-postgres-tag
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+        state: present
+      register: ans_default_ig_sg
+    - name: create nginx security group
+      amazon.aws.ec2_group:
+        name: ig-ans-nginx-servers
+        description: SG needed for nginx load balancers
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        tags:
+          Name: ig-ans-nginx-loadbalance
+        rules:
+          - proto: all
+            group_name: ig-ans-postgres
+            rule_desc: Allow inbound traffic from postgres
+          - proto: tcp
+            ports:
+              - 22
+            cidr_ip: 0.0.0.0/0
+            rule_desc: Allow SSH from anywhere
+          - proto: tcp
+            ports:
+              - 80
+            cidr_ip: 68.119.93.72/32
+            rule_desc: Grader IP
+          - proto: tcp
+            ports:
+              - 80
+            cidr_ip: 73.171.175.131/32
+            rule_desc: Home
+          - proto: tcp
+            ports:
+              - 80
+            cidr_ip: 24.239.105.213/32
+            rule_desc: Instructor IP
+        rules_egress:
+          - proto: all
+            cidr_ip: 0.0.0.0/0
+        state: present
+      register: ans_nginx_servers
+    - name: create network ACL for public subnet
+      community.aws.ec2_vpc_nacl:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        name: ig-ans-public-acl
+        subnets: ["{{ publicsubnet1.subnet.id }}", "{{ publicsubnet2.subnet.id }}"]
+        tags: 
+          Name: ig-ans-public-acl
+        ingress:
+          - [10, 'tcp', 'allow', '73.171.175.131/32', null, null, 5000, 5000]
+          - [20, 'tcp', 'allow', '0.0.0.0/0', null, null, 22, 22]
+          - [30, 'tcp', 'allow', '0.0.0.0/0', null, null, 443, 443]
+          - [40, 'tcp', 'allow', '0.0.0.0/0', null, null, 80, 80]
+          - [50, 'tcp', 'allow', '0.0.0.0/0', null, null, 1024, 65535]
+          - [60, 'tcp', 'allow', '68.119.93.72/32', null, null, 5000, 5000]
+          - [70, 'tcp', 'allow', '24.239.105.213/32', null, null, 5000, 5000]
+        egress:
+          - [10, 'tcp', 'allow', '73.171.175.131/32', null, null, 5000, 5000]
+          - [20, 'tcp', 'allow', '0.0.0.0/0', null, null, 22, 22]
+          - [30, 'tcp', 'allow', '0.0.0.0/0', null, null, 443, 443]
+          - [40, 'tcp', 'allow', '0.0.0.0/0', null, null, 80, 80]
+          - [50, 'tcp', 'allow', '0.0.0.0/0', null, null, 1024, 65535]
+          - [60, 'tcp', 'allow', '68.119.93.72/32', null, null, 5000, 5000]
+          - [70, 'tcp', 'allow', '24.239.105.213/32', null, null, 5000, 5000]
+        state: 'present'
+      register: ans_public_acl
+    - name: create network ACL for private subnet
+      community.aws.ec2_vpc_nacl:
+        vpc_id: "{{ createdvpc.vpc.id }}"
+        name: ig-ans-private-acl
+        subnets: ["{{ privatesubnet1.subnet.id }}", "{{ privatesubnet2.subnet.id }}"]
+        tags: 
+          Name: ig-ans-private-acl
+        ingress:
+          - [100, 'tcp', 'allow', '10.0.0.0/16', null, null, 5432, 5432]
+          - [200, 'all', 'allow', '10.0.0.0/16', null, null, null, null]
+          - [300, 'tcp', 'allow', '0.0.0.0/0', null, null, 5432, 5432]
+        egress:
+          - [100, 'tcp', 'allow', '10.0.0.0/16', null, null, 1024, 65535]
+          - [200, 'all', 'allow', '0.0.0.0/0', null, null, null, null]
+        state: present
+      register: ans_private_acl

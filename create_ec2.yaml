@@ -1,0 +1,28 @@
+---
+- hosts: localhost
+  gather_facts: no
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    ami_id: "ami-0cff7528ff583bf9a"
+  module_defaults:
+    group/aws:
+      region: "us-east-1"
+  tasks:
+    - name: Provision Dev instance
+      ec2:
+        id: b0rk-ans-test
+        key_name: development
+        instance_type: t2.micro
+        image: "{{ ami_id }}"
+        group: 
+          - ig-ans-development
+          - ig-ans-postgres
+        instance_tags:
+          Name: ig-ans-dev-ec2
+        wait: yes
+        vpc_subnet_id: "{{ publicsubnet1.subnet.id }}"
+        assign_public_ip: yes
+        user_data: "{{ lookup('file', 'bootstrapscript.sh') }}"
+        exact_count: 1
+        count_tag:
+          Name: ig-ans-dev-ec2
