@@ -36,7 +36,11 @@
         auto_minor_version_upgrade: yes
         tags:
           Name: ans-rds-instance
+        vpc_security_group_ids:
+          - "{{ postgres_sg.group_id }}"
+          - "{{ temp_ans_db.group_id }}"
         password: "{{ postgres_creds }}"
+        wait: yes
         username: postgres
         state: present
       register: ans_rds
