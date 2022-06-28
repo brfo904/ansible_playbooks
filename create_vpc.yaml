@@ -83,6 +83,12 @@
         vpc_id: "{{ createdvpc.vpc.id }}"
         tags:
           Name: ig-ans-postgres-tag
+        rules_egress:
+          - proto: tcp
+            ports:
+              - 5432
+            group_name: ig-ans-postgres
+            rule_desc: Allow outbound traffic to postgres
         state: present
       register: postgrestag_sg
     - name: update postgres rules
@@ -103,16 +109,6 @@
         rules_egress:
           - proto: all
             cidr_ip: 0.0.0.0/0
-    - name: update postgres-tag rules
-      amazon.aws.ec2_group:
-        name: ig-ans-postgres-tag
-        description: Instances with this tag can contact ig-ans-postgres
-        rules_egress:
-          - proto: tcp
-            ports:
-              - 5432
-            group_name: ig-ans-postgres
-            rule_desc: Allow outbound traffic to postgres
     - name: create development sg
       amazon.aws.ec2_group:
         name: ig-ans-development

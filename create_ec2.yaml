@@ -26,3 +26,4 @@
         exact_count: 1
         count_tag:
           Name: ig-ans-dev-ec2
+      register: ans_ec2_dev
