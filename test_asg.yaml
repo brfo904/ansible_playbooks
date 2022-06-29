@@ -1,0 +1,26 @@
+---
+- hosts: localhost
+  gather_facts: no
+  module_defaults:
+    group/aws:
+      region: "us-east-1"
+  tasks:
+    - name: create autoscaling group
+      community.aws.ec2_asg:
+        name: ans-autoscalinggrp
+        desired_capacity: 1
+        min_size: 1
+        max_size: 4
+        default_cooldown: 300
+        load_balancers: 'ans-image-gallery1 | TCP'
+        vpc_zone_identifier:
+          - subnet-022c654ae234a112e
+          - subnet-0ed87d5b214549be0
+        launch_template:
+          launch_template_id: lt-0b19725dd2fa0dd23
+          version: 1
+        state: present
+      register: ans_asg
+
+
+

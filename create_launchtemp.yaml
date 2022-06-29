@@ -7,36 +7,6 @@
     group/aws:
       region: us-east-1
   tasks:
-    - name: create IAM server role
-      community.aws.iam_role:
-        name: ans-image-gallery-server-role
-        description: Role needed for Ansible instances to perform actions
-        state: present
-      register: ans_iam_role
-    - name: create s3 policy
-      community.aws.iam_policy:
-        policy_name: ans-image-gallery-s3-policy
-        iam_type: role
-        iam_name: "{{ ans_iam_role.role_name }}"
-        policy_json: "{{ lookup('file', 's3_policy.json')"
-    - name: create sec mgr policy
-      community.aws.iam_policy:
-        policy_name: ans-image-gallery-secmgr
-        iam_type: role
-        iam_name: "{{ ans_iam_role.role_name }}"
-        policy_json: "{{ lookup('file', 'secmgr_policy.json')"
-    - name: create flask session policy
-      community.aws.iam_policy:
-        policy_name: ans-image-gallery-flask-access
-        iam_type: role
-        iam_name: "{{ ans_iam_role.role_name }}"
-        policy_json: "{{ lookup('file', 'flask_policy.json')"
-    - name: create rds policy
-      community.aws.iam_policy:
-        policy_name: ans-image-gallery-rds-access
-        iam_type: role
-        iam_name: "{{ ans_iam_role.role_name }}"
-        policy_json: "{{ lookup('file', 'rds_policy.json')"
     - name: create launch template
       community.aws.ec2_launch_template:
         template_name: ans-launch-template
@@ -45,16 +15,86 @@
         image_id: "{{ ami_id }}"
         key_name: development
         instance_type: t3.nano
-        security_group_ids:
-          - "{{ ans_nginx_servers.group_id }}"
-          - "{{ postgrestag_sg.group_id }}"
-          - "{{ ans_ig_secmgrtag.group_id }}"
         network_interfaces:
           - description: net interface for ans-autoscaled instances
             associate_public_ip_address: yes
+            device_index: 0
             groups:
              - "{{ ans_nginx_servers.group_id }}"
              - "{{ postgrestag_sg.group_id }}"
              - "{{ ans_ig_secmgrtag.group_id }}"
         user_data: "{{ lookup('file', 'ec2_asgscript.sh') | b64encode }}"
         state: present
+      register: ans_launchtemp
+    - name: launch template details
+      debug: var=ans_launchtemp
+    - name: create target group
+      community.aws.elb_target_group:
+        name: ans-image-gallery1
+        target_type: instance
+        protocol: tcp
+        port: 80
+        vpc_id: "{{createdvpc.vpc.id }}"
+        health_check_protocol: HTTP
+        health_check_path: "/"
+        health_check_port: "traffic-port"
+        state: present
+      register: ans_tg
+    - name: create first ellastic ip
+      community.aws.ec2_eip:
+        in_vpc: yes
+        tag_name: Name
+        tag_value: ans-ig-eip1
+      register: ans_eip1
+    - name: create second elastic ip
+      community.aws.ec2_eip:
+        in_vpc: yes
+        tag_name: Name
+        tag_value: ans-ig-eip2
+      register: ans_eip2
+    - name: create nlb for instance
+      community.aws.elb_network_lb:
+        name: ansloadbalancer
+        scheme: internet-facing
+        ip_address_type: ipv4
+        subnet_mappings:
+          - SubnetId: "{{ publicsubnet1.subnet.id }}"
+            AllocationId: "{{ ans_eip1.allocation_id }}"
+          - SubnetId: "{{ publicsubnet2.subnet.id }}"
+            AllocationId: "{{ ans_eip2.allocation_id }}"
+        listeners:
+          - Protocol: TCP
+            Port: 80
+            DefaultActions:
+              - Type: 'forward' 
+                TargetGroupArn: "{{ ans_tg.target_group_arn }}"
+          - Protocol: TLS
+            Port: 443
+            DefaultActions:
+              - Type: 'forward' 
+                TargetGroupArn: "{{ ans_tg.target_group_arn }}"
+            Certificates:
+              - CertificateArn: 'arn:aws:acm:us-east-1:456441622985:certificate/079d38b1-0364-4192-8752-2da8cd369959'
+            SslPolicy: 'ELBSecurityPolicy-TLS13-1-2-2021-06'
+        tags:
+          Name: ans-ig-nlb
+        wait: yes
+        state: present
+      register: ans_nlb
+    - name: create autoscaling group
+      community.aws.ec2_asg:
+        name: ans-autoscalinggrp
+        desired_capacity: 1
+        min_size: 1
+        max_size: 4
+        default_cooldown: 300
+        vpc_zone_identifier:
+          - "{{ publicsubnet1.subnet.id }}"
+          - "{{ publicsubnet2.subnet.id }}"
+        load_balancers: 
+          - "{{ ans_nlb.load_balancer_name }}"
+        launch_template:
+          launch_template_id: "{{ ans_launchtemp.default_template.launch_template_id }}"
+          version: "{{ ans_launchtemp.latest_version }}"
+        state: present
+      register: ans_asg

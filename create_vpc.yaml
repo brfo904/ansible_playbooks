@@ -63,6 +63,7 @@
           Name: ig-ans-public-routetable
         subnets:
           - "{{publicsubnet1.subnet.id }}"
+          - "{{publicsubnet2.subnet.id }}"
         routes:
           - dest: 0.0.0.0/0
             gateway_id: "{{ igw.gateway_id }}"
